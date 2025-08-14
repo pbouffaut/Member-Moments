@@ -9,7 +9,8 @@ from .storage import get_conn, seen_url, save_event
 from .matcher import best_company_match
 from .event_extract import classify_event, score_severity
 from .slack_delivery import post_slack
-from .verification import verify_domain_in_article, analyze_article_tone, get_tone_emoji, get_verification_emoji
+from .verification import analyze_article_tone, get_tone_emoji
+from .disambiguation import verify_company_mention, get_verification_emoji
 
 def parse_locations_with_counts(s: str):
     # Expect "Location A (12); Location B (7)"
@@ -121,11 +122,37 @@ def load_companies(csv_path, locations_csv=None, verbose=False):
             "locations_with_counts": locations_with_counts
         }
         if company["domains"]:
-            # Filter out companies whose names are only numbers
-            if name and not re.match(r'^[\d\s\-\.]+$', name):
+            # Enhanced filtering to reduce false positives
+            if name:
+                # Filter out companies whose names are only numbers
+                if re.match(r'^[\d\s\-\.]+$', name):
+                    if verbose:
+                        print(f"[INFO] Skipping company with numeric name: {name}")
+                    continue
+                
+                # Filter out very short names that could be ambiguous
+                if len(name.strip()) <= 2:
+                    if verbose:
+                        print(f"[INFO] Skipping company with very short name: {name}")
+                    continue
+                
+                # Filter out names that look like initials only
+                if re.match(r'^[A-Z]\s*[A-Z]\s*[A-Z]?$', name.strip()):
+                    if verbose:
+                        print(f"[INFO] Skipping company with initials-only name: {name}")
+                    continue
+                
+                # Filter out names that are just common words
+                common_words = ['the', 'and', 'or', 'for', 'new', 'old', 'big', 'small']
+                if name.lower().strip() in common_words:
+                    if verbose:
+                        print(f"[INFO] Skipping company with generic name: {name}")
+                    continue
+                
                 companies.append(company)
-            elif verbose:
-                print(f"[INFO] Skipping company with numeric name: {name}")
+            else:
+                if verbose:
+                    print(f"[INFO] Skipping company with no name")
     return companies
 
 def google_news_rss(query, lang="en"):
@@ -241,16 +268,18 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
     published_at = item.get("published_at")
     evidence = url
 
-    # Get company domains for verification
+    # Get company domains for comprehensive verification
     company_domains = []
     for company_data in companies_data:
         if company_data["company_name"] == best_name:
             company_domains = company_data["domains"]
             break
 
-    # Domain verification (use test mode in GitHub Actions to avoid external requests)
+    # Comprehensive company verification using new disambiguation system
     test_mode = os.environ.get('GITHUB_ACTIONS') == 'true'
-    is_verified, verification_note = verify_domain_in_article(url, company_domains, verbose, test_mode)
+    is_verified, verification_note, confidence_score = verify_company_mention(
+        best_name, company_domains, url, title, verbose, test_mode
+    )
     
     # Tone analysis
     tone, tone_confidence = analyze_article_tone(title)
@@ -262,7 +291,9 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
     # Create enhanced title with verification status and tone
     verification_prefix = ""
     if not is_verified:
-        verification_prefix = f"⚠️ *UNVERIFIED* - {verification_note}\n"
+        verification_prefix = f"{get_verification_emoji(is_verified, confidence_score)} *UNVERIFIED* - {verification_note}\n"
+    else:
+        verification_prefix = f"{get_verification_emoji(is_verified, confidence_score)} *VERIFIED* ({confidence_score:.2f}) - {verification_note}\n"
     
     tone_info = f"Tone: {get_tone_emoji(tone)} {tone} ({tone_confidence:.2f})"
     
@@ -287,6 +318,7 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
         "evidence": evidence,
         "is_verified": is_verified,
         "verification_note": verification_note,
+        "verification_confidence": confidence_score,
         "tone": tone,
         "tone_confidence": tone_confidence
     }
@@ -296,7 +328,7 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
         try:
             post_slack(slack_url, title=title_augmented, company=best_name, url=url,
                        event_type=ev_type, published_at=published_at or "", severity=severity,
-                       location=primary_location, is_verified=is_verified, tone=tone)
+                       location=primary_location, is_verified=is_verified, tone=tone, confidence=confidence_score)
         except Exception as e:
             if verbose:
                 print("[Slack] Failed to post:", e)

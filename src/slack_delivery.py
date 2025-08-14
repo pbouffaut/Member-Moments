@@ -18,7 +18,7 @@ def flair_for_event(event_type: str) -> str:
     return "Consider a friendly shoutout."
 
 
-def post_slack(webhook_url: str, *, title: str, company: str, url: str, event_type: str, published_at: str, severity: float, location: str | None = None, is_verified: bool = True, tone: str = "NEUTRAL"):
+def post_slack(webhook_url: str, *, title: str, company: str, url: str, event_type: str, published_at: str, severity: float, location: str | None = None, is_verified: bool = True, tone: str = "NEUTRAL", confidence: float = 1.0):
     ts = published_at or datetime.utcnow().isoformat()
     emoji = {
         "FUNDING": "🎉",
@@ -32,7 +32,8 @@ def post_slack(webhook_url: str, *, title: str, company: str, url: str, event_ty
     location_suffix = f" in {location}" if location else ""
     
     # Add verification status and tone to the message
-    verification_status = "✅ VERIFIED" if is_verified else "⚠️ UNVERIFIED"
+    verification_emoji = "✅" if is_verified else "⚠️"
+    verification_status = f"{verification_emoji} VERIFIED ({confidence:.2f})" if is_verified else f"{verification_emoji} UNVERIFIED ({confidence:.2f})"
     tone_emoji = {"POSITIVE": "✅", "NEGATIVE": "⚠️", "NEUTRAL": "ℹ️"}.get(tone, "ℹ️")
     
     text = f"{emoji} *{event_type}: {company}{location_suffix}*\n{verification_status} · Tone: {tone_emoji} {tone}\n{title}\n<{url}|Evidence> · {ts[:10]} · Sev {severity:.2f}\n_{flair_for_event(event_type)}_"
