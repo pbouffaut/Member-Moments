@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  member-mom:
+    build: .
+    environment:
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - NEWSAPI_KEY=${NEWSAPI_KEY}
+    volumes:
+      - ./events.db:/app/events.db
+      - ./companies_with_locations.csv:/app/companies_with_locations.csv
+    restart: unless-stopped

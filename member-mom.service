@@ -1,0 +1,16 @@
+[Unit]
+Description=Member Moments Scheduler
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/path/to/your/app
+ExecStart=/usr/bin/python3 /path/to/your/app/scheduler.py
+Restart=always
+RestartSec=10
+Environment=SLACK_WEBHOOK_URL=your_webhook_url_here
+Environment=NEWSAPI_KEY=your_newsapi_key_here
+
+[Install]
+WantedBy=multi-user.target

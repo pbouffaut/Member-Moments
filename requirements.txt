@@ -1,0 +1,8 @@
+requests
+pyyaml
+python-dateutil
+rapidfuzz
+feedparser
+beautifulsoup4
+sqlite-utils
+schedule

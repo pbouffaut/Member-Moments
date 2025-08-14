@@ -1,0 +1,42 @@
+name: Scheduled Member Moments Run
+
+on:
+  schedule:
+    # Run every day at 9 AM UTC (adjust timezone as needed)
+    - cron: '0 9 * * *'
+  workflow_dispatch: # Allow manual runs
+
+jobs:
+  run-app:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run Member Moments
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+      run: |
+        python -m src.main \
+          --csv companies_with_locations.csv \
+          --config config.yaml \
+          --since_days 1
+          
+    - name: Upload results
+      uses: actions/upload-artifact@v3
+      with:
+        name: run-results
+        path: events.db
+        retention-days: 7
