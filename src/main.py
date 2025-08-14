@@ -9,6 +9,7 @@ from .storage import get_conn, seen_url, save_event
 from .matcher import best_company_match
 from .event_extract import classify_event, score_severity
 from .slack_delivery import post_slack
+from .verification import verify_domain_in_article, analyze_article_tone, get_tone_emoji, get_verification_emoji
 
 def parse_locations_with_counts(s: str):
     # Expect "Location A (12); Location B (7)"
@@ -120,7 +121,11 @@ def load_companies(csv_path, locations_csv=None, verbose=False):
             "locations_with_counts": locations_with_counts
         }
         if company["domains"]:
-            companies.append(company)
+            # Filter out companies whose names are only numbers
+            if name and not re.match(r'^[\d\s\-\.]+$', name):
+                companies.append(company)
+            elif verbose:
+                print(f"[INFO] Skipping company with numeric name: {name}")
     return companies
 
 def google_news_rss(query, lang="en"):
@@ -202,7 +207,7 @@ def run(csv_path, config_path, since_days, verbose=False, locations_csv=None):
                 if published and published.replace(tzinfo=timezone.utc) < since:
                     continue
                 process_item(item, name, names, min_conf, min_sev, slack_url, conn,
-                             name_to_primary_location, name_to_all_locations, verbose=verbose)
+                             name_to_primary_location, name_to_all_locations, companies, verbose=verbose)
 
             # NewsAPI (optional)
             try:
@@ -211,13 +216,13 @@ def run(csv_path, config_path, since_days, verbose=False, locations_csv=None):
                     if published and published.replace(tzinfo=timezone.utc) < since:
                         continue
                     process_item(item, name, names, min_conf, min_sev, slack_url, conn,
-                                 name_to_primary_location, name_to_all_locations, verbose=verbose)
+                                 name_to_primary_location, name_to_all_locations, companies, verbose=verbose)
             except Exception as e:
                 if verbose:
                     print("[NewsAPI] Skipping due to error:", e)
 
 def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, conn,
-                 name_to_primary_location, name_to_all_locations, verbose=False):
+                 name_to_primary_location, name_to_all_locations, companies_data, verbose=False):
     title = item.get("title") or ""
     url = item.get("url") or ""
     if not url or seen_url(conn, url):
@@ -236,13 +241,37 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
     published_at = item.get("published_at")
     evidence = url
 
+    # Get company domains for verification
+    company_domains = []
+    for company_data in companies_data:
+        if company_data["company_name"] == best_name:
+            company_domains = company_data["domains"]
+            break
+
+    # Domain verification (use test mode in GitHub Actions to avoid external requests)
+    test_mode = os.environ.get('GITHUB_ACTIONS') == 'true'
+    is_verified, verification_note = verify_domain_in_article(url, company_domains, verbose, test_mode)
+    
+    # Tone analysis
+    tone, tone_confidence = analyze_article_tone(title)
+    
     # Location handling
     primary_location = name_to_primary_location.get(best_name)
     all_locations = (name_to_all_locations.get(best_name) or "").strip()
-    # Append a Locations line to the Slack message body (as part of title field)
+    
+    # Create enhanced title with verification status and tone
+    verification_prefix = ""
+    if not is_verified:
+        verification_prefix = f"⚠️ *UNVERIFIED* - {verification_note}\n"
+    
+    tone_info = f"Tone: {get_tone_emoji(tone)} {tone} ({tone_confidence:.2f})"
+    
     title_augmented = title
     if all_locations:
         title_augmented = f"{title}\nLocations: {all_locations}"
+    
+    # Add verification and tone info
+    title_augmented = f"{verification_prefix}{title_augmented}\n{tone_info}"
 
     row = {
         "created_at": datetime.utcnow().isoformat(),
@@ -255,7 +284,11 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
         "event_type": ev_type,
         "severity": severity,
         "confidence": conf,
-        "evidence": evidence
+        "evidence": evidence,
+        "is_verified": is_verified,
+        "verification_note": verification_note,
+        "tone": tone,
+        "tone_confidence": tone_confidence
     }
     save_event(conn, row)
 
@@ -263,7 +296,7 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
         try:
             post_slack(slack_url, title=title_augmented, company=best_name, url=url,
                        event_type=ev_type, published_at=published_at or "", severity=severity,
-                       location=primary_location)
+                       location=primary_location, is_verified=is_verified, tone=tone)
         except Exception as e:
             if verbose:
                 print("[Slack] Failed to post:", e)

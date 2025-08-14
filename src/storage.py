@@ -14,7 +14,11 @@ CREATE TABLE IF NOT EXISTS events (
   event_type TEXT,
   severity REAL,
   confidence REAL,
-  evidence TEXT
+  evidence TEXT,
+  is_verified INTEGER DEFAULT 1,
+  verification_note TEXT,
+  tone TEXT DEFAULT 'NEUTRAL',
+  tone_confidence REAL DEFAULT 0.5
 );
 """
 
