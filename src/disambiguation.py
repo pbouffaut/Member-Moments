@@ -20,11 +20,35 @@ BUSINESS_CONTEXT_PATTERNS = [
     r'\bheadquarters\b', r'\boffice\b', r'\blocation\b', r'\bexpansion\b'
 ]
 
+# Non-business context indicators that suggest the article is NOT about a company
+NON_BUSINESS_CONTEXT_PATTERNS = [
+    r'\bsports\b', r'\bgame\b', r'\bplay\b', r'\bteam\b', r'\bplayer\b', r'\bcoach\b',
+    r'\bweather\b', r'\bclimate\b', r'\btemperature\b', r'\brain\b', r'\bstorm\b',
+    r'\bpolitics\b', r'\belection\b', r'\bvote\b', r'\bgovernment\b', r'\bofficial\b',
+    r'\bcrime\b', r'\barrest\b', r'\bpolice\b', r'\bincident\b', r'\baccident\b',
+    r'\bdisaster\b', r'\bflood\b', r'\bfire\b', r'\bearthquake\b', r'\btsunami\b',
+    r'\bhealth\b', r'\bmedical\b', r'\bhospital\b', r'\bdoctor\b', r'\bpatient\b',
+    r'\bentertainment\b', r'\bmovie\b', r'\bshow\b', r'\bconcert\b', r'\bartist\b',
+    r'\beducation\b', r'\bschool\b', r'\buniversity\b', r'\bstudent\b', r'\bteacher\b'
+]
+
 # Generic terms that often cause false positives
 GENERIC_TERMS = [
     'the', 'and', 'or', 'for', 'with', 'from', 'about', 'new', 'old', 'big', 'small',
     'good', 'bad', 'high', 'low', 'fast', 'slow', 'hot', 'cold', 'open', 'close',
     'start', 'stop', 'begin', 'end', 'first', 'last', 'next', 'previous'
+]
+
+# High-risk single-word company names that require extra verification
+HIGH_RISK_SINGLE_WORDS = [
+    'advance', 'agency', 'house', 'home', 'work', 'play', 'go', 'get', 'make', 'take',
+    'see', 'look', 'find', 'help', 'care', 'love', 'life', 'time', 'day', 'way',
+    'world', 'city', 'town', 'place', 'space', 'room', 'door', 'window', 'light',
+    'water', 'fire', 'earth', 'air', 'sun', 'moon', 'star', 'tree', 'flower', 'bird',
+    'fish', 'dog', 'cat', 'man', 'woman', 'boy', 'girl', 'child', 'people', 'family',
+    'friend', 'team', 'group', 'club', 'band', 'show', 'game', 'play', 'book', 'film',
+    'music', 'art', 'food', 'drink', 'shop', 'store', 'bank', 'school', 'church',
+    'hospital', 'hotel', 'restaurant', 'cafe', 'bar', 'park', 'road', 'street', 'avenue'
 ]
 
 def extract_domain_from_url(url: str) -> str:
@@ -76,8 +100,17 @@ def has_business_context(text: str) -> bool:
         if re.search(pattern, text_lower):
             business_score += 1
     
-    # Return True if we have multiple business indicators
-    return business_score >= 2
+    # Count non-business context indicators (negative score)
+    non_business_score = 0
+    for pattern in NON_BUSINESS_CONTEXT_PATTERNS:
+        if re.search(pattern, text_lower):
+            non_business_score += 1
+    
+    # Calculate net business score
+    net_business_score = business_score - non_business_score
+    
+    # Return True only if we have a strong positive business context
+    return net_business_score >= 2
 
 def calculate_name_similarity(company_name: str, article_text: str) -> Tuple[float, str]:
     """
@@ -107,17 +140,82 @@ def calculate_name_similarity(company_name: str, article_text: str) -> Tuple[flo
         if matching_parts >= len(company_parts) * 0.67:
             return 0.8, "majority_words_match"
     
-    # Single word company name - be very strict
+    # Single word company name - be extremely strict
     if len(company_parts) == 1:
-        word = company_parts[0]
-        # Only match if it's not a generic term and appears in business context
+        word = company_parts[0].lower()
+        
+        # High-risk single words require domain verification AND business context
+        if word in HIGH_RISK_SINGLE_WORDS:
+            # For high-risk words, require both domain verification AND strong business context
+            if has_business_context(article_text):
+                return 0.4, "high_risk_single_word_with_context"
+            else:
+                return 0.1, "high_risk_single_word_no_context"
+        
+        # Regular single words - still strict but not as harsh
         if word not in GENERIC_TERMS and word in article_text:
             if has_business_context(article_text):
-                return 0.7, "single_word_business_context"
+                return 0.6, "single_word_business_context"
             else:
-                return 0.3, "single_word_no_context"
+                return 0.2, "single_word_no_context"
+        
+        return 0.0, "single_word_generic_or_not_found"
     
     return 0.0, "no_match"
+
+def is_company_specific_mention(company_name: str, article_text: str, company_domains: List[str]) -> bool:
+    """
+    Check if the article is specifically about the company vs. just using the word in a different context.
+    This helps distinguish between "Apple launches new iPhone" vs "She ate an apple"
+    """
+    company_name_lower = company_name.lower()
+    article_text_lower = article_text.lower()
+    
+    # Check for company-specific indicators
+    company_indicators = [
+        f"{company_name_lower} announces",
+        f"{company_name_lower} launches", 
+        f"{company_name_lower} raises",
+        f"{company_name_lower} appoints",
+        f"{company_name_lower} expands",
+        f"{company_name_lower} reports",
+        f"{company_name_lower} earnings",
+        f"{company_name_lower} revenue",
+        f"{company_name_lower} stock",
+        f"{company_name_lower} shares",
+        f"{company_name_lower} ceo",
+        f"{company_name_lower} cto",
+        f"{company_name_lower} headquarters",
+        f"{company_name_lower} office",
+        f"{company_name_lower} location"
+    ]
+    
+    # Check if any company-specific indicators are present
+    for indicator in company_indicators:
+        if indicator in article_text_lower:
+            return True
+    
+    # Check if company name appears in proper noun context (capitalized)
+    # This helps distinguish "Apple" (company) from "apple" (fruit)
+    company_words = company_name.split()
+    for word in company_words:
+        if word.lower() in article_text_lower:
+            # Look for capitalized version in context
+            capitalized_word = word.capitalize()
+            if capitalized_word in article_text:
+                # Check if it's in a business context
+                context_before = article_text_lower.find(word.lower())
+                context_after = context_before + len(word)
+                
+                # Look for business context around the mention
+                start = max(0, context_before - 50)
+                end = min(len(article_text_lower), context_after + 50)
+                context_window = article_text_lower[start:end]
+                
+                if has_business_context(context_window):
+                    return True
+    
+    return False
 
 def verify_company_mention(company_name: str, company_domains: List[str], 
                           article_url: str, article_title: str, 
@@ -171,9 +269,13 @@ def verify_company_mention(company_name: str, company_domains: List[str],
     # Check if company name looks like a person's name
     is_person_name = is_likely_person_name(company_name)
     
-    # Calculate overall confidence
+    # Calculate overall confidence with stricter rules for high-risk companies
     confidence = 0.0
     verification_note = ""
+    
+    # Check if this is a high-risk single-word company
+    company_words = company_name.lower().split()
+    is_high_risk_single_word = len(company_words) == 1 and company_words[0] in HIGH_RISK_SINGLE_WORDS
     
     if domain_verified:
         if name_similarity > 0.8:
@@ -194,13 +296,21 @@ def verify_company_mention(company_name: str, company_domains: List[str],
             confidence = 0.2
             verification_note = f"Domain not verified, weak name match: {match_type}"
     
+    # CRITICAL: High-risk single-word companies MUST have domain verification
+    if is_high_risk_single_word and not domain_verified:
+        confidence = 0.1
+        verification_note += " (REJECTED: high-risk single-word company without domain verification)"
+    
     # Penalize if company name looks like a person's name
     if is_person_name:
         confidence *= 0.5
         verification_note += " (penalized: company name resembles person name)"
     
-    # Final verification decision
-    is_verified = confidence >= 0.6
+    # Final verification decision - higher threshold for high-risk companies
+    if is_high_risk_single_word:
+        is_verified = confidence >= 0.7  # Higher threshold for risky companies
+    else:
+        is_verified = confidence >= 0.6  # Standard threshold
     
     if verbose:
         print(f"[VERIFY] Company: {company_name}")

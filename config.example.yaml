@@ -1,6 +1,7 @@
 # Copy this file to config.yaml and fill in your values
 slack_webhook_url: "YOUR_SLACK_WEBHOOK_URL_HERE"  # required
 newsapi_key: "YOUR_NEWSAPI_KEY_HERE"   # optional, leave blank to skip
+google_knowledge_graph_key: "YOUR_GOOGLE_KNOWLEDGE_GRAPH_API_KEY_HERE"  # optional, for entity disambiguation
 google_news_lang: "en"
 min_confidence: 0.8
 min_severity: 0.6

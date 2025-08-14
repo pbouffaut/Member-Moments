@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS events (
   is_verified INTEGER DEFAULT 1,
   verification_note TEXT,
   verification_confidence REAL DEFAULT 1.0,
+  wikidata_id TEXT,
+  entity_types TEXT,
   tone TEXT DEFAULT 'NEUTRAL',
   tone_confidence REAL DEFAULT 0.5
 );

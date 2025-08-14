@@ -30,6 +30,7 @@ jobs:
         cat > config.yaml << EOF
         slack_webhook_url: "${{ secrets.SLACK_WEBHOOK_URL }}"
         newsapi_key: "${{ secrets.NEWSAPI_KEY }}"
+        google_knowledge_graph_key: "${{ secrets.GOOGLE_KNOWLEDGE_GRAPH_KEY }}"
         google_news_lang: "en"
         min_confidence: 0.8
         min_severity: 0.6

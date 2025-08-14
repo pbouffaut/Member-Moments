@@ -18,7 +18,7 @@ def flair_for_event(event_type: str) -> str:
     return "Consider a friendly shoutout."
 
 
-def post_slack(webhook_url: str, *, title: str, company: str, url: str, event_type: str, published_at: str, severity: float, location: str | None = None, is_verified: bool = True, tone: str = "NEUTRAL", confidence: float = 1.0):
+def post_slack(webhook_url: str, *, title: str, company: str, url: str, event_type: str, published_at: str, severity: float, location: str | None = None, is_verified: bool = True, tone: str = "NEUTRAL", confidence: float = 1.0, wikidata_id: str = ""):
     ts = published_at or datetime.utcnow().isoformat()
     emoji = {
         "FUNDING": "🎉",
@@ -36,7 +36,12 @@ def post_slack(webhook_url: str, *, title: str, company: str, url: str, event_ty
     verification_status = f"{verification_emoji} VERIFIED ({confidence:.2f})" if is_verified else f"{verification_emoji} UNVERIFIED ({confidence:.2f})"
     tone_emoji = {"POSITIVE": "✅", "NEGATIVE": "⚠️", "NEUTRAL": "ℹ️"}.get(tone, "ℹ️")
     
-    text = f"{emoji} *{event_type}: {company}{location_suffix}*\n{verification_status} · Tone: {tone_emoji} {tone}\n{title}\n<{url}|Evidence> · {ts[:10]} · Sev {severity:.2f}\n_{flair_for_event(event_type)}_"
+    # Add Wikidata info if available
+    wikidata_info = ""
+    if wikidata_id:
+        wikidata_info = f"\n🔍 Wikidata: <https://www.wikidata.org/entity/{wikidata_id}|{wikidata_id}>"
+    
+    text = f"{emoji} *{event_type}: {company}{location_suffix}*\n{verification_status} · Tone: {tone_emoji} {tone}{wikidata_info}\n{title}\n<{url}|Evidence> · {ts[:10]} · Sev {severity:.2f}\n_{flair_for_event(event_type)}_"
     payload = {"text": text}
     resp = requests.post(webhook_url, data=json.dumps(payload), headers={"Content-Type": "application/json"})
     try:

@@ -10,7 +10,8 @@ from .matcher import best_company_match
 from .event_extract import classify_event, score_severity
 from .slack_delivery import post_slack
 from .verification import analyze_article_tone, get_tone_emoji
-from .disambiguation import verify_company_mention, get_verification_emoji
+from .wikidata_disambiguation import WikidataDisambiguator
+from .disambiguation import get_verification_emoji
 
 def parse_locations_with_counts(s: str):
     # Expect "Location A (12); Location B (7)"
@@ -275,11 +276,31 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
             company_domains = company_data["domains"]
             break
 
-    # Comprehensive company verification using new disambiguation system
+    # Comprehensive company verification using Wikidata disambiguation
     test_mode = os.environ.get('GITHUB_ACTIONS') == 'true'
-    is_verified, verification_note, confidence_score = verify_company_mention(
-        best_name, company_domains, url, title, verbose, test_mode
-    )
+    
+    # Initialize Wikidata disambiguator
+    disambiguator = WikidataDisambiguator()
+    
+    # Get article context for better disambiguation
+    article_context = title
+    if len(title) < 50:  # If title is short, add some context
+        article_context = f"{title} news article"
+    
+    # Disambiguate company using Wikidata
+    disambiguation_result = disambiguator.disambiguate_company(best_name, article_context)
+    
+    is_verified = disambiguation_result['is_verified']
+    verification_note = disambiguation_result['description'] or "Wikidata verification completed"
+    confidence_score = disambiguation_result['confidence']
+    
+    if verbose:
+        print(f"[WIKIDATA] Company: {best_name}")
+        print(f"[WIKIDATA] Verified: {is_verified}")
+        print(f"[WIKIDATA] Confidence: {confidence_score:.2f}")
+        print(f"[WIKIDATA] Entity: {disambiguation_result['entity_name']}")
+        print(f"[WIKIDATA] Types: {disambiguation_result['entity_type']}")
+        print(f"[WIKIDATA] Wikidata ID: {disambiguation_result['wikidata_id']}")
     
     # Tone analysis
     tone, tone_confidence = analyze_article_tone(title)
@@ -291,7 +312,7 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
     # Create enhanced title with verification status and tone
     verification_prefix = ""
     if not is_verified:
-        verification_prefix = f"{get_verification_emoji(is_verified, confidence_score)} *UNVERIFIED* - {verification_note}\n"
+        verification_prefix = f"{get_verification_emoji(is_verified, confidence_score)} *UNVERIFIED* ({confidence_score:.2f}) - {verification_note}\n"
     else:
         verification_prefix = f"{get_verification_emoji(is_verified, confidence_score)} *VERIFIED* ({confidence_score:.2f}) - {verification_note}\n"
     
@@ -319,6 +340,8 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
         "is_verified": is_verified,
         "verification_note": verification_note,
         "verification_confidence": confidence_score,
+        "wikidata_id": disambiguation_result.get('wikidata_id', ''),
+        "entity_types": ','.join(disambiguation_result.get('entity_type', [])),
         "tone": tone,
         "tone_confidence": tone_confidence
     }
@@ -328,7 +351,7 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
         try:
             post_slack(slack_url, title=title_augmented, company=best_name, url=url,
                        event_type=ev_type, published_at=published_at or "", severity=severity,
-                       location=primary_location, is_verified=is_verified, tone=tone, confidence=confidence_score)
+                       location=primary_location, is_verified=is_verified, tone=tone, confidence=confidence_score, wikidata_id=disambiguation_result.get('wikidata_id', ''))
         except Exception as e:
             if verbose:
                 print("[Slack] Failed to post:", e)
