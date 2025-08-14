@@ -24,11 +24,25 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Run Member Moments
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+    - name: Create config file
       run: |
+        cat > config.yaml << EOF
+        slack_webhook_url: "${{ secrets.SLACK_WEBHOOK_URL }}"
+        newsapi_key: "${{ secrets.NEWSAPI_KEY }}"
+        google_news_lang: "en"
+        min_confidence: 0.8
+        min_severity: 0.6
+        since_days: 14
+        EOF
+        
+    - name: Run Member Moments
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Files in directory:"
+        ls -la
+        echo "Config file contents:"
+        cat config.yaml
+        echo "Running Member Moments app..."
         python -m src.main \
           --csv companies_with_locations.csv \
           --config config.yaml \
