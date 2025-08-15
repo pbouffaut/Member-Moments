@@ -403,16 +403,128 @@ class GoogleKnowledgeGraphDisambiguator:
         """Check if text is a generic word that could cause false positives"""
         text_lower = text.lower().strip()
         
-        # Generic words that commonly cause false positives
-        generic_words = [
-            'advance', 'agency', 'agency', 'new', 'old', 'big', 'small', 'good', 'bad',
-            'fast', 'slow', 'high', 'low', 'right', 'left', 'up', 'down', 'in', 'out',
-            'yes', 'no', 'maybe', 'sure', 'ok', 'fine', 'great', 'awesome', 'terrible',
-            'company', 'business', 'organization', 'team', 'group', 'office', 'place',
-            'center', 'hub', 'spot', 'zone', 'area', 'region', 'city', 'town', 'village'
+        # Static list of definitely generic words (fast fallback)
+        definitely_generic = [
+            'yes', 'no', 'maybe', 'sure', 'ok', 'fine', 'good', 'bad',
+            'up', 'down', 'in', 'out', 'left', 'right', 'high', 'low'
         ]
         
-        return text_lower in generic_words
+        if text_lower in definitely_generic:
+            return True
+        
+        # For other words, use dynamic analysis if we have API access
+        if self.api_key:
+            return self._is_generic_word_dynamic(text)
+        
+        # Fallback to static list for common business false positives
+        business_generic = [
+            'advance', 'agency', 'new', 'old', 'big', 'small',
+            'company', 'business', 'organization', 'team', 'group'
+        ]
+        
+        return text_lower in business_generic
+    
+    def _is_generic_word_dynamic(self, text: str) -> bool:
+        """Dynamically determine if a word is generic using Google Knowledge Graph analysis"""
+        try:
+            # Search for the word without business context
+            search_results = self._search_entities_raw(text)
+            
+            if not search_results:
+                return False  # No results, not necessarily generic
+            
+            # Analyze the diversity and relevance of results
+            return self._analyze_result_diversity(search_results, text)
+            
+        except Exception as e:
+            print(f"[GOOGLE_KG] Dynamic generic word analysis failed: {e}")
+            return False  # Fallback to static analysis
+    
+    def _search_entities_raw(self, query: str) -> List[Dict]:
+        """Search Google Knowledge Graph without business context modifiers"""
+        try:
+            params = {
+                'query': query,
+                'key': self.api_key,
+                'limit': 15,
+                'indent': True
+            }
+            
+            response = requests.get(self.base_url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if 'itemListElement' in data:
+                return data['itemListElement']
+            
+            return []
+            
+        except Exception as e:
+            print(f"[GOOGLE_KG] Raw search error: {e}")
+            return []
+    
+    def _analyze_result_diversity(self, search_results: List[Dict], query: str) -> bool:
+        """Analyze search results to determine if the query is generic/ambiguous"""
+        if len(search_results) < 3:
+            return False  # Few results, likely specific
+        
+        # Extract entity types and categories
+        entity_types = []
+        descriptions = []
+        names = []
+        
+        for item in search_results[:10]:  # Analyze first 10 results
+            if 'result' in item:
+                result = item['result']
+                
+                # Get entity types
+                if 'type' in result:
+                    entity_types.extend(result['type'])
+                
+                # Get descriptions
+                if 'description' in result:
+                    descriptions.append(result['description'].lower())
+                
+                # Get names
+                if 'name' in result:
+                    names.append(result['name'].lower())
+        
+        # Calculate diversity metrics
+        type_diversity = len(set(entity_types))
+        name_diversity = len(set(names))
+        
+        # Check if results are from completely different domains
+        domain_keywords = {
+            'sports': ['game', 'team', 'player', 'tournament', 'league', 'championship'],
+            'business': ['company', 'corporation', 'business', 'office', 'ceo', 'startup'],
+            'geography': ['city', 'town', 'country', 'region', 'state', 'province'],
+            'entertainment': ['movie', 'show', 'actor', 'director', 'film', 'series'],
+            'technology': ['software', 'app', 'platform', 'tech', 'digital', 'online']
+        }
+        
+        domain_scores = {}
+        for domain, keywords in domain_keywords.items():
+            score = sum(1 for desc in descriptions if any(kw in desc for kw in keywords))
+            domain_scores[domain] = score
+        
+        # If we have high diversity across multiple domains, it's likely generic
+        active_domains = sum(1 for score in domain_scores.values() if score > 0)
+        
+        # Generic word indicators:
+        # 1. High type diversity (many different types of entities)
+        # 2. High name diversity (names don't relate to each other)
+        # 3. Multiple active domains (results from different fields)
+        # 4. Low relevance scores (Google KG isn't confident about matches)
+        
+        is_generic = (
+            type_diversity > 5 or  # Many different entity types
+            name_diversity > 8 or  # Very diverse names
+            active_domains > 3 or  # Results from many different domains
+            (type_diversity > 3 and active_domains > 2)  # Combination of factors
+        )
+        
+        return is_generic
 
     def _no_api_key_fallback(self, company_name: str) -> Dict:
         """Fallback when no API key is provided"""
