@@ -33,7 +33,8 @@ jobs:
         google_knowledge_graph_key: "${{ secrets.GOOGLE_KNOWLEDGE_GRAPH_KEY }}"
         google_news_lang: "en"
         min_confidence: 0.8
-        min_severity: 0.6
+        min_sev: 0.6
+        false_positive_threshold: 0.3
         since_days: 14
         EOF
         

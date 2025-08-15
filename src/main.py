@@ -201,6 +201,7 @@ def run(csv_path, config_path, since_days, verbose=False, locations_csv=None):
     lang = cfg.get("google_news_lang", "en")
     min_conf = float(cfg.get("min_confidence", 0.8))
     min_sev = float(cfg.get("min_severity", 0.6))
+    false_positive_threshold = float(cfg.get("false_positive_threshold", 0.3))
 
     companies = load_companies(csv_path, locations_csv=locations_csv, verbose=verbose)
     names = [c["company_name"] for c in companies]
@@ -239,7 +240,7 @@ def run(csv_path, config_path, since_days, verbose=False, locations_csv=None):
                 if published and published.replace(tzinfo=timezone.utc) < since:
                     continue
                 process_item(item, name, names, min_conf, min_sev, slack_url, conn,
-                             name_to_primary_location, name_to_all_locations, companies, disambiguator, verbose=verbose)
+                             name_to_primary_location, name_to_all_locations, companies, disambiguator, false_positive_threshold, verbose=verbose)
 
             # NewsAPI (optional)
             try:
@@ -248,13 +249,13 @@ def run(csv_path, config_path, since_days, verbose=False, locations_csv=None):
                     if published and published.replace(tzinfo=timezone.utc) < since:
                         continue
                     process_item(item, name, names, min_conf, min_sev, slack_url, conn,
-                                 name_to_primary_location, name_to_all_locations, companies, disambiguator, verbose=verbose)
+                                 name_to_primary_location, name_to_all_locations, companies, disambiguator, false_positive_threshold, verbose=verbose)
             except Exception as e:
                 if verbose:
                     print("[NewsAPI] Skipping due to error:", e)
 
 def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, conn,
-                 name_to_primary_location, name_to_all_locations, companies_data, disambiguator, verbose=False):
+                 name_to_primary_location, name_to_all_locations, companies_data, disambiguator, false_positive_threshold, verbose=False):
     title = item.get("title") or ""
     url = item.get("url") or ""
     if not url or seen_url(conn, url):
@@ -350,14 +351,30 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
     }
     save_event(conn, row)
 
-    if slack_url:
+    # Filter out likely false positives before posting to Slack
+    is_likely_false_positive = (
+        confidence_score < false_positive_threshold or  # Configurable confidence threshold
+        (verification_note and "likely false positive" in verification_note.lower()) or  # Explicitly marked as false positive
+        (verification_note and "generic word" in verification_note.lower()) or  # Generic word detection
+        (verification_note and "person name" in verification_note.lower())  # Person name detection
+    )
+    
+    if slack_url and not is_likely_false_positive:
         try:
+            if verbose:
+                print(f"[SLACK] Posting to Slack: {best_name} (confidence: {confidence_score:.2f})")
             post_slack(slack_url, title=title_augmented, company=best_name, url=url,
                        event_type=ev_type, published_at=published_at or "", severity=severity,
                        location=primary_location, is_verified=is_verified, tone=tone, confidence=confidence_score, wikidata_id=disambiguation_result.get('wikidata_id', ''))
         except Exception as e:
             if verbose:
                 print("[Slack] Failed to post:", e)
+    elif slack_url and is_likely_false_positive:
+        if verbose:
+            print(f"[SLACK] Skipping likely false positive: {best_name} (confidence: {confidence_score:.2f}) - {verification_note}")
+    elif not slack_url:
+        if verbose:
+            print("[SLACK] No Slack webhook configured, skipping post")
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

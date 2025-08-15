@@ -5,4 +5,5 @@ google_knowledge_graph_key: "YOUR_GOOGLE_KNOWLEDGE_GRAPH_API_KEY_HERE"  # option
 google_news_lang: "en"
 min_confidence: 0.8
 min_severity: 0.6
+false_positive_threshold: 0.3  # Skip Slack posts for items below this confidence
 since_days: 14
