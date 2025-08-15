@@ -58,6 +58,20 @@ class GoogleKnowledgeGraphDisambiguator:
     
     def _fallback_disambiguation(self, company_name: str, article_context: str = "") -> Dict:
         """Fallback disambiguation using basic logic when Google KG fails"""
+        # Check if this is a generic word that commonly causes false positives
+        if self._is_generic_word(company_name):
+            return {
+                'is_verified': False,
+                'confidence': 0.0,
+                'entity_name': company_name,
+                'entity_type': [],
+                'description': 'Generic word - likely false positive',
+                'url': '',
+                'wikidata_id': '',
+                'disambiguation_results': [],
+                'source': 'fallback_logic'
+            }
+        
         # Basic company verification logic
         is_verified = False
         confidence = 0.3
@@ -384,6 +398,21 @@ class GoogleKnowledgeGraphDisambiguator:
                 business_score += 1
         
         return business_score >= 2
+    
+    def _is_generic_word(self, text: str) -> bool:
+        """Check if text is a generic word that could cause false positives"""
+        text_lower = text.lower().strip()
+        
+        # Generic words that commonly cause false positives
+        generic_words = [
+            'advance', 'agency', 'agency', 'new', 'old', 'big', 'small', 'good', 'bad',
+            'fast', 'slow', 'high', 'low', 'right', 'left', 'up', 'down', 'in', 'out',
+            'yes', 'no', 'maybe', 'sure', 'ok', 'fine', 'great', 'awesome', 'terrible',
+            'company', 'business', 'organization', 'team', 'group', 'office', 'place',
+            'center', 'hub', 'spot', 'zone', 'area', 'region', 'city', 'town', 'village'
+        ]
+        
+        return text_lower in generic_words
 
     def _no_api_key_fallback(self, company_name: str) -> Dict:
         """Fallback when no API key is provided"""
@@ -401,17 +430,31 @@ class GoogleKnowledgeGraphDisambiguator:
     
     def _no_results_fallback(self, company_name: str) -> Dict:
         """Fallback when no search results found"""
-        return {
-            'is_verified': False,
-            'confidence': 0.0,
-            'entity_name': company_name,
-            'entity_type': [],
-            'description': 'No Google Knowledge Graph results found',
-            'url': '',
-            'wikidata_id': '',
-            'disambiguation_results': [],
-            'source': 'google_knowledge_graph'
-        }
+        # Check if this looks like a generic word that could cause false positives
+        if self._is_generic_word(company_name):
+            return {
+                'is_verified': False,
+                'confidence': 0.0,
+                'entity_name': company_name,
+                'entity_type': [],
+                'description': 'Generic word - likely false positive',
+                'url': '',
+                'wikidata_id': '',
+                'disambiguation_results': [],
+                'source': 'google_knowledge_graph'
+            }
+        else:
+            return {
+                'is_verified': False,
+                'confidence': 0.0,
+                'entity_name': company_name,
+                'entity_type': [],
+                'description': 'No Google Knowledge Graph results found',
+                'url': '',
+                'wikidata_id': '',
+                'disambiguation_results': [],
+                'source': 'google_knowledge_graph'
+            }
     
     def _no_company_results_fallback(self, company_name: str) -> Dict:
         """Fallback when no company results found"""

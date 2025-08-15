@@ -212,6 +212,10 @@ def run(csv_path, config_path, since_days, verbose=False, locations_csv=None):
     name_to_all_locations = {
         c["company_name"]: c.get("locations") or "" for c in companies
     }
+    
+    # Initialize Google Knowledge Graph disambiguator
+    google_kg_key = cfg.get("google_knowledge_graph_key", "")
+    disambiguator = GoogleKnowledgeGraphDisambiguator(google_kg_key)
 
     if verbose:
         print(f"[INFO] Loaded {len(companies)} companies from {csv_path}")
@@ -235,7 +239,7 @@ def run(csv_path, config_path, since_days, verbose=False, locations_csv=None):
                 if published and published.replace(tzinfo=timezone.utc) < since:
                     continue
                 process_item(item, name, names, min_conf, min_sev, slack_url, conn,
-                             name_to_primary_location, name_to_all_locations, companies, verbose=verbose)
+                             name_to_primary_location, name_to_all_locations, companies, disambiguator, verbose=verbose)
 
             # NewsAPI (optional)
             try:
@@ -244,13 +248,13 @@ def run(csv_path, config_path, since_days, verbose=False, locations_csv=None):
                     if published and published.replace(tzinfo=timezone.utc) < since:
                         continue
                     process_item(item, name, names, min_conf, min_sev, slack_url, conn,
-                                 name_to_primary_location, name_to_all_locations, companies, verbose=verbose)
+                                 name_to_primary_location, name_to_all_locations, companies, disambiguator, verbose=verbose)
             except Exception as e:
                 if verbose:
                     print("[NewsAPI] Skipping due to error:", e)
 
 def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, conn,
-                 name_to_primary_location, name_to_all_locations, companies_data, verbose=False):
+                 name_to_primary_location, name_to_all_locations, companies_data, disambiguator, verbose=False):
     title = item.get("title") or ""
     url = item.get("url") or ""
     if not url or seen_url(conn, url):
@@ -279,24 +283,14 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
     # Comprehensive company verification using Google Knowledge Graph disambiguation
     test_mode = os.environ.get('GITHUB_ACTIONS') == 'true'
     
-    # Load config to get API key
-    config_path = args.config if 'args' in locals() else 'config.yaml'
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f) or {}
-        api_key = config.get('google_knowledge_graph_key', '')
-    except:
-        api_key = ''
-    
-    # Initialize Google Knowledge Graph disambiguator
-    disambiguator = GoogleKnowledgeGraphDisambiguator(api_key)
+    # Use the disambiguator passed from main function
     
     # Get article context for better disambiguation
     article_context = title
     if len(title) < 50:  # If title is short, add some context
         article_context = f"{title} news article"
     
-    # Disambiguate company using Wikidata
+    # Disambiguate company using Google Knowledge Graph
     disambiguation_result = disambiguator.disambiguate_company(best_name, article_context)
     
     is_verified = disambiguation_result['is_verified']
