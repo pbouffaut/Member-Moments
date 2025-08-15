@@ -69,25 +69,69 @@ def analyze_article_tone(title: str, content: str = "") -> Tuple[str, float]:
     
     # Positive tone indicators
     positive_patterns = [
-        r'\braise[sd]?\b', r'\bfund(?:ed|ing)\b', r'\bacquire[d]?\b', r'\bpartnership\b',
-        r'\bexpansion\b', r'\bgrowth\b', r'\bsuccess\b', r'\bwin[s]?\b', r'\baward[s]?\b',
-        r'\blaunch[esd]?\b', r'\brelease[sd]?\b', r'\bunveil[sd]?\b', r'\bnew\b',
-        r'\binnovative\b', r'\bbreakthrough\b', r'\bexciting\b', r'\bpositive\b'
+        # Financial growth
+        r'\braise[sd]?\b', r'\brise[sd]?\b', r'\bgain[sd]?\b', r'\bclimb[sd]?\b',
+        r'\bsurge[sd]?\b', r'\bsoar[sd]?\b', r'\bjump[sd]?\b', r'\bleap[sd]?\b',
+        r'\bgrowth\b', r'\bexpand[sd]?\b', r'\bexpansion\b', r'\bprofit[s]?\b',
+        r'\brevenue\b', r'\bearnings\b', r'\bup\b', r'\bhigher\b', r'\bstrong\b',
+        
+        # Business success
+        r'\bfund(?:ed|ing)\b', r'\bacquire[d]?\b', r'\bpartnership\b', r'\bcollaboration\b',
+        r'\bsuccess\b', r'\bsuccessful\b', r'\bwin[s]?\b', r'\bwon\b', r'\baward[s]?\b',
+        r'\bachievement\b', r'\bmilestone\b', r'\bbreakthrough\b', r'\binnovation\b',
+        
+        # Product launches
+        r'\blaunch[esd]?\b', r'\brelease[sd]?\b', r'\bunveil[sd]?\b', r'\bintroduce[sd]?\b',
+        r'\bnew\b', r'\binnovative\b', r'\bexciting\b', r'\bamazing\b', r'\boutstanding\b',
+        r'\bexcellent\b', r'\bbrilliant\b', r'\bfantastic\b', r'\bwonderful\b',
+        
+        # General positive
+        r'\bpositive\b', r'\bgood\b', r'\bgreat\b', r'\bawesome\b', r'\bterrific\b',
+        r'\bperfect\b', r'\bideal\b', r'\boptimal\b', r'\bbest\b', r'\btop\b'
     ]
     
     # Negative tone indicators
     negative_patterns = [
+        # Financial decline
+        r'\bfall[s]?\b', r'\bdecline[sd]?\b', r'\bdrop[sd]?\b', r'\bplunge[sd]?\b',
+        r'\bcrash[esd]?\b', r'\bslump[sd]?\b', r'\btumble[sd]?\b', r'\bslide[sd]?\b',
+        r'\bloss\b', r'\blosses\b', r'\blosing\b', r'\blost\b',
+        r'\bdecrease[sd]?\b', r'\breduce[sd]?\b', r'\breduction\b',
+        r'\bdown\b', r'\blower\b', r'\bweak\b', r'\bweaken[ed]?\b',
+        
+        # Stock market specific
+        r'\bshare[s]?\s+fall[sd]?\b', r'\bstock\s+fall[sd]?\b', r'\bprice\s+fall[sd]?\b',
+        r'\bafter\s*[-]?hours?\b', r'\binsider\s+sell[ing]?\b', r'\bsell[ing]?\s+stock\b',
+        r'\bmarket\s+decline\b', r'\bbear\s+market\b', r'\bcorrection\b',
+        
+        # Business problems
         r'\blayoff[s]?\b', r'\bbreach\b', r'\battack\b', r'\bhack[ed]?\b',
         r'\bsecurity\s+incident\b', r'\bdata\s+breach\b', r'\bcyber\s+attack\b',
         r'\bfraud\b', r'\bscandal\b', r'\bcontroversy\b', r'\blawsuit\b',
-        r'\bshutdown\b', r'\bbankruptcy\b', r'\bfailure\b', r'\bdecline\b',
-        r'\bloss\b', r'\bdecrease\b', r'\bdown\b', r'\bnegative\b'
+        r'\bshutdown\b', r'\bbankruptcy\b', r'\bfailure\b', r'\bfailed\b',
+        r'\bstruggl[esd]?\b', r'\btrouble[sd]?\b', r'\bproblem[s]?\b',
+        r'\bissue[s]?\b', r'\bconcern[s]?\b', r'\brisk[s]?\b', r'\bdanger\b',
+        
+        # General negative
+        r'\bnegative\b', r'\bbad\b', r'\bterrible\b', r'\bawful\b', r'\bhorrible\b',
+        r'\bdisaster\b', r'\bcrisis\b', r'\bemergency\b', r'\bpanic\b', r'\bfear\b'
     ]
     
     # Neutral/balanced indicators
     neutral_patterns = [
-        r'\bappoint[sd]?\b', r'\bjoin[sd]?\b', r'\bannounce[sd]?\b',
-        r'\bpartnership\b', r'\bcollaboration\b', r'\bmerger\b', r'\bacquisition\b'
+        # Administrative changes
+        r'\bappoint[sd]?\b', r'\bjoin[sd]?\b', r'\bannounce[sd]?\b', r'\bannouncement\b',
+        r'\bhire[sd]?\b', r'\bhire[d]?\b', r'\bpromote[sd]?\b', r'\bpromotion\b',
+        r'\bresign[sd]?\b', r'\bresignation\b', r'\bleave[sd]?\b', r'\bdeparture\b',
+        
+        # Business transactions
+        r'\bpartnership\b', r'\bcollaboration\b', r'\bmerger\b', r'\bacquisition\b',
+        r'\binvestment\b', r'\bdeal\b', r'\bagreement\b', r'\bcontract\b',
+        r'\btransaction\b', r'\bexchange\b', r'\btrade\b', r'\bpurchase\b',
+        
+        # General business
+        r'\bquarterly\b', r'\bannual\b', r'\bmonthly\b', r'\bupdate\b',
+        r'\breport[sd]?\b', r'\bstatement\b', r'\bresults\b', r'\bperformance\b'
     ]
     
     def count_matches(patterns):
@@ -97,18 +141,26 @@ def analyze_article_tone(title: str, content: str = "") -> Tuple[str, float]:
     negative_count = count_matches(negative_patterns)
     neutral_count = count_matches(neutral_patterns)
     
-    # Determine tone based on pattern counts
-    if positive_count > negative_count and positive_count > neutral_count:
-        confidence = min(0.9, 0.5 + (positive_count * 0.1))
+    # Determine tone based on pattern counts with weighted scoring
+    # Give more weight to negative patterns as they're often more significant
+    weighted_positive = positive_count * 1.0
+    weighted_negative = negative_count * 1.2  # Negative patterns get 20% more weight
+    weighted_neutral = neutral_count * 0.8    # Neutral patterns get 20% less weight
+    
+    # Calculate confidence based on pattern strength
+    if weighted_positive > weighted_negative and weighted_positive > weighted_neutral:
+        confidence = min(0.95, 0.6 + (positive_count * 0.08))
         return "POSITIVE", confidence
-    elif negative_count > positive_count and negative_count > neutral_count:
-        confidence = min(0.9, 0.5 + (negative_count * 0.1))
+    elif weighted_negative > weighted_positive and weighted_negative > weighted_neutral:
+        confidence = min(0.95, 0.6 + (negative_count * 0.08))
         return "NEGATIVE", confidence
-    elif neutral_count > 0:
+    elif weighted_neutral > 0 and abs(weighted_positive - weighted_negative) < 2:
+        # Only neutral if positive and negative are close
         confidence = min(0.8, 0.4 + (neutral_count * 0.1))
         return "NEUTRAL", confidence
     else:
-        return "NEUTRAL", 0.5
+        # Default to neutral with low confidence if unclear
+        return "NEUTRAL", 0.3
 
 def get_tone_emoji(tone: str) -> str:
     """Get appropriate emoji for tone"""
