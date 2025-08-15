@@ -36,12 +36,12 @@ def post_slack(webhook_url: str, *, title: str, company: str, url: str, event_ty
     verification_status = f"{verification_emoji} VERIFIED ({confidence:.2f})" if is_verified else f"{verification_emoji} UNVERIFIED ({confidence:.2f})"
     tone_emoji = {"POSITIVE": "✅", "NEGATIVE": "⚠️", "NEUTRAL": "ℹ️"}.get(tone, "ℹ️")
     
-    # Add Wikidata info if available
-    wikidata_info = ""
+    # Add Google Knowledge Graph info if available
+    entity_info = ""
     if wikidata_id:
-        wikidata_info = f"\n🔍 Wikidata: <https://www.wikidata.org/entity/{wikidata_id}|{wikidata_id}>"
+        entity_info = f"\n🔍 Google KG: <https://www.google.com/search?q={wikidata_id}|{wikidata_id}>"
     
-    text = f"{emoji} *{event_type}: {company}{location_suffix}*\n{verification_status} · Tone: {tone_emoji} {tone}{wikidata_info}\n{title}\n<{url}|Evidence> · {ts[:10]} · Sev {severity:.2f}\n_{flair_for_event(event_type)}_"
+    text = f"{emoji} *{event_type}: {company}{location_suffix}*\n{verification_status} · Tone: {tone_emoji} {tone}{entity_info}\n{title}\n<{url}|Evidence> · {ts[:10]} · Sev {severity:.2f}\n_{flair_for_event(event_type)}_"
     payload = {"text": text}
     resp = requests.post(webhook_url, data=json.dumps(payload), headers={"Content-Type": "application/json"})
     try:

@@ -5,24 +5,26 @@ from typing import Dict, List, Optional, Tuple
 import time
 from urllib.parse import quote_plus
 
-class WikidataDisambiguator:
+class GoogleKnowledgeGraphDisambiguator:
     """
-    Uses Wikidata API to disambiguate company names and verify entities
-    Completely free, no API key required
+    Uses Google Knowledge Graph API to disambiguate company names and verify entities
+    Much broader coverage than Wikidata, especially for smaller companies
     """
     
-    def __init__(self):
-        self.base_url = "https://www.wikidata.org/w/api.php"
-        self.search_url = "https://www.wikidata.org/w/api.php"
-        self.entity_url = "https://www.wikidata.org/entity/"
+    def __init__(self, api_key: str = ""):
+        self.api_key = api_key
+        self.base_url = "https://kgsearch.googleapis.com/v1/entities:search"
         
     def disambiguate_company(self, company_name: str, article_context: str = "") -> Dict:
         """
-        Disambiguate a company name using Wikidata API
+        Disambiguate a company name using Google Knowledge Graph API
         Returns disambiguation results with confidence scores
         """
+        if not self.api_key:
+            return self._no_api_key_fallback(company_name)
+        
         try:
-            # Search for the company name
+            # Search for the company name with context
             search_results = self._search_entities(company_name, article_context)
             
             if not search_results:
@@ -34,15 +36,8 @@ class WikidataDisambiguator:
             if not company_results:
                 return self._no_company_results_fallback(company_name)
             
-            # Get detailed entity information for top results
-            detailed_results = []
-            for result in company_results[:3]:  # Top 3 results
-                entity_info = self._get_entity_details(result['id'])
-                if entity_info:
-                    detailed_results.append(entity_info)
-            
             # Find best match
-            best_match = self._find_best_match(detailed_results, company_name, article_context)
+            best_match = self._find_best_match(company_results, company_name, article_context)
             
             return {
                 'is_verified': best_match['confidence'] > 0.7,
@@ -51,17 +46,17 @@ class WikidataDisambiguator:
                 'entity_type': best_match['types'],
                 'description': best_match['description'],
                 'url': best_match['url'],
-                'wikidata_id': best_match['wikidata_id'],
-                'disambiguation_results': detailed_results,
-                'source': 'wikidata'
+                'wikidata_id': best_match['id'],  # Google's entity ID
+                'disambiguation_results': company_results,
+                'source': 'google_knowledge_graph'
             }
             
         except Exception as e:
-            print(f"[WIKIDATA] Error during disambiguation: {e}")
+            print(f"[GOOGLE_KG] Error during disambiguation: {e}")
             return self._error_fallback(company_name, str(e))
     
     def _search_entities(self, query: str, context: str = "") -> List[Dict]:
-        """Search Wikidata for entities matching the query"""
+        """Search Google Knowledge Graph for entities matching the query"""
         try:
             # Build search query with context if available
             search_query = query
@@ -71,42 +66,45 @@ class WikidataDisambiguator:
                 search_query = f"{query} {' '.join(context_words)}"
             
             params = {
-                'action': 'wbsearchentities',
-                'search': search_query,
-                'language': 'en',
-                'type': 'item',
+                'query': search_query,
+                'key': self.api_key,
                 'limit': 10,
-                'format': 'json'
+                'types': 'Organization|Corporation|Company|EducationalOrganization',
+                'indent': True
             }
             
-            response = requests.get(self.search_url, params=params, timeout=10)
+            response = requests.get(self.base_url, params=params, timeout=10)
             response.raise_for_status()
             
             data = response.json()
             
-            if 'search' in data:
-                return data['search']
+            if 'itemListElement' in data:
+                return data['itemListElement']
             return []
             
         except Exception as e:
-            print(f"[WIKIDATA] Search error: {e}")
+            print(f"[GOOGLE_KG] Search error: {e}")
             return []
     
     def _filter_company_results(self, search_results: List[Dict], company_name: str) -> List[Dict]:
         """Filter results to focus on company/organization entities"""
         company_results = []
         
-        for result in search_results:
-            # Check if it's likely a company/organization
-            if self._is_likely_company(result, company_name):
-                company_results.append(result)
+        for item in search_results:
+            if 'result' in item:
+                result = item['result']
+                # Check if it's likely a company/organization
+                if self._is_likely_company(result, company_name):
+                    # Add the result score for ranking
+                    result['score'] = item.get('resultScore', 0)
+                    company_results.append(result)
         
         return company_results
     
     def _is_likely_company(self, result: Dict, company_name: str) -> bool:
         """Check if the result is likely a company/organization"""
         description = result.get('description', '').lower()
-        label = result.get('label', '').lower()
+        name = result.get('name', '').lower()
         
         # Company/organization indicators
         company_indicators = [
@@ -121,8 +119,8 @@ class WikidataDisambiguator:
             if indicator in description:
                 return True
         
-        # Check if label matches company name well
-        if self._name_similarity(company_name, label) > 0.7:
+        # Check if name matches company name well
+        if self._name_similarity(company_name, name) > 0.7:
             return True
         
         return False
@@ -248,11 +246,11 @@ class WikidataDisambiguator:
         best_result, best_score = scored_results[0]
         
         return {
-            'wikidata_id': best_result['wikidata_id'],
-            'name': best_result['name'],
-            'description': best_result['description'],
-            'types': best_result['types'],
-            'url': best_result['url'],
+            'id': best_result.get('id', ''),
+            'name': best_result.get('name', ''),
+            'description': best_result.get('description', ''),
+            'types': best_result.get('@type', []),
+            'url': best_result.get('url', ''),
             'confidence': best_score
         }
     
@@ -261,13 +259,13 @@ class WikidataDisambiguator:
         score = 0.0
         
         # Name similarity (40% of score)
-        name_sim = self._name_similarity(company_name, result['name'])
+        name_sim = self._name_similarity(company_name, result.get('name', ''))
         score += name_sim * 0.4
         
         # Type relevance (30% of score)
         type_score = 0.0
-        company_types = ['Company', 'Organization', 'Corporation', 'Startup']
-        for entity_type in result['types']:
+        company_types = ['Organization', 'Corporation', 'Company', 'EducationalOrganization']
+        for entity_type in result.get('@type', []):
             if entity_type in company_types:
                 type_score = 1.0
                 break
@@ -275,7 +273,7 @@ class WikidataDisambiguator:
         
         # Description relevance (20% of score)
         desc_score = 0.0
-        if result['description']:
+        if result.get('description'):
             desc_lower = result['description'].lower()
             company_indicators = ['company', 'business', 'organization', 'startup', 'tech']
             for indicator in company_indicators:
@@ -284,15 +282,28 @@ class WikidataDisambiguator:
             desc_score = min(desc_score, 1.0)
         score += desc_score * 0.2
         
-        # Context relevance (10% of score)
-        if context and result['description']:
-            context_words = set(context.lower().split()[:10])
-            desc_words = set(result['description'].lower().split())
-            overlap = len(context_words.intersection(desc_words))
-            context_score = min(overlap / 5.0, 1.0)  # Normalize
-            score += context_score * 0.1
+        # Google's result score (10% of score)
+        google_score = 0.0
+        if 'score' in result:
+            # Normalize Google's score (usually 0-1000)
+            google_score = min(result['score'] / 1000.0, 1.0)
+        score += google_score * 0.1
         
         return min(score, 1.0)
+    
+    def _no_api_key_fallback(self, company_name: str) -> Dict:
+        """Fallback when no API key is provided"""
+        return {
+            'is_verified': False,
+            'confidence': 0.3,
+            'entity_name': company_name,
+            'entity_type': [],
+            'description': 'Google Knowledge Graph API key not provided',
+            'url': '',
+            'wikidata_id': '',
+            'disambiguation_results': [],
+            'source': 'google_knowledge_graph'
+        }
     
     def _no_results_fallback(self, company_name: str) -> Dict:
         """Fallback when no search results found"""
@@ -301,11 +312,11 @@ class WikidataDisambiguator:
             'confidence': 0.0,
             'entity_name': company_name,
             'entity_type': [],
-            'description': 'No Wikidata results found',
+            'description': 'No Google Knowledge Graph results found',
             'url': '',
             'wikidata_id': '',
             'disambiguation_results': [],
-            'source': 'wikidata'
+            'source': 'google_knowledge_graph'
         }
     
     def _no_company_results_fallback(self, company_name: str) -> Dict:
@@ -315,11 +326,11 @@ class WikidataDisambiguator:
             'confidence': 0.2,
             'entity_name': company_name,
             'entity_type': [],
-            'description': 'No company entities found in Wikidata',
+            'description': 'No company entities found in Google Knowledge Graph',
             'url': '',
             'wikidata_id': '',
             'disambiguation_results': [],
-            'source': 'wikidata'
+            'source': 'google_knowledge_graph'
         }
     
     def _error_fallback(self, company_name: str, error: str) -> Dict:
@@ -333,7 +344,7 @@ class WikidataDisambiguator:
             'url': '',
             'wikidata_id': '',
             'disambiguation_results': [],
-            'source': 'wikidata'
+            'source': 'google_knowledge_graph'
         }
     
     def _default_result(self, company_name: str) -> Dict:
@@ -347,9 +358,16 @@ class WikidataDisambiguator:
             'confidence': 0.0
         }
 
-def test_wikidata_disambiguation():
-    """Test the Wikidata disambiguation system"""
-    disambiguator = WikidataDisambiguator()
+def test_google_knowledge_graph_disambiguation():
+    """Test the Google Knowledge Graph disambiguation system"""
+    # You'll need to set your API key
+    api_key = "YOUR_GOOGLE_KNOWLEDGE_GRAPH_API_KEY"
+    
+    if api_key == "YOUR_GOOGLE_KNOWLEDGE_GRAPH_API_KEY":
+        print("Please set your Google Knowledge Graph API key to test")
+        return
+    
+    disambiguator = GoogleKnowledgeGraphDisambiguator(api_key)
     
     # Test cases
     test_cases = [
@@ -373,4 +391,4 @@ def test_wikidata_disambiguation():
         print(f"URL: {result['url']}")
 
 if __name__ == "__main__":
-    test_wikidata_disambiguation()
+    test_google_knowledge_graph_disambiguation()

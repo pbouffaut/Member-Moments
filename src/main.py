@@ -10,7 +10,7 @@ from .matcher import best_company_match
 from .event_extract import classify_event, score_severity
 from .slack_delivery import post_slack
 from .verification import analyze_article_tone, get_tone_emoji
-from .wikidata_disambiguation import WikidataDisambiguator
+from .google_knowledge_graph_disambiguation import GoogleKnowledgeGraphDisambiguator
 from .disambiguation import get_verification_emoji
 
 def parse_locations_with_counts(s: str):
@@ -276,11 +276,20 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
             company_domains = company_data["domains"]
             break
 
-    # Comprehensive company verification using Wikidata disambiguation
+    # Comprehensive company verification using Google Knowledge Graph disambiguation
     test_mode = os.environ.get('GITHUB_ACTIONS') == 'true'
     
-    # Initialize Wikidata disambiguator
-    disambiguator = WikidataDisambiguator()
+    # Load config to get API key
+    config_path = args.config if 'args' in locals() else 'config.yaml'
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f) or {}
+        api_key = config.get('google_knowledge_graph_key', '')
+    except:
+        api_key = ''
+    
+    # Initialize Google Knowledge Graph disambiguator
+    disambiguator = GoogleKnowledgeGraphDisambiguator(api_key)
     
     # Get article context for better disambiguation
     article_context = title
@@ -295,12 +304,12 @@ def process_item(item, target_company, all_names, min_conf, min_sev, slack_url, 
     confidence_score = disambiguation_result['confidence']
     
     if verbose:
-        print(f"[WIKIDATA] Company: {best_name}")
-        print(f"[WIKIDATA] Verified: {is_verified}")
-        print(f"[WIKIDATA] Confidence: {confidence_score:.2f}")
-        print(f"[WIKIDATA] Entity: {disambiguation_result['entity_name']}")
-        print(f"[WIKIDATA] Types: {disambiguation_result['entity_type']}")
-        print(f"[WIKIDATA] Wikidata ID: {disambiguation_result['wikidata_id']}")
+        print(f"[GOOGLE_KG] Company: {best_name}")
+        print(f"[GOOGLE_KG] Verified: {is_verified}")
+        print(f"[GOOGLE_KG] Confidence: {confidence_score:.2f}")
+        print(f"[GOOGLE_KG] Entity: {disambiguation_result['entity_name']}")
+        print(f"[GOOGLE_KG] Types: {disambiguation_result['entity_type']}")
+        print(f"[GOOGLE_KG] Entity ID: {disambiguation_result['wikidata_id']}")
     
     # Tone analysis
     tone, tone_confidence = analyze_article_tone(title)
