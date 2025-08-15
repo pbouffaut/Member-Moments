@@ -34,7 +34,8 @@ class GoogleKnowledgeGraphDisambiguator:
             company_results = self._filter_company_results(search_results, company_name)
             
             if not company_results:
-                return self._no_company_results_fallback(company_name)
+                # Fallback to basic disambiguation logic
+                return self._fallback_disambiguation(company_name, article_context)
             
             # Find best match
             best_match = self._find_best_match(company_results, company_name, article_context)
@@ -53,7 +54,39 @@ class GoogleKnowledgeGraphDisambiguator:
             
         except Exception as e:
             print(f"[GOOGLE_KG] Error during disambiguation: {e}")
-            return self._error_fallback(company_name, str(e))
+            return self._fallback_disambiguation(company_name, article_context)
+    
+    def _fallback_disambiguation(self, company_name: str, article_context: str = "") -> Dict:
+        """Fallback disambiguation using basic logic when Google KG fails"""
+        # Basic company verification logic
+        is_verified = False
+        confidence = 0.3
+        description = "Basic verification completed"
+        
+        # Check if company name looks like a person's name
+        if self._is_likely_person_name(company_name):
+            confidence = 0.1
+            description = "Company name resembles person name - low confidence"
+        else:
+            # Check for business context in article
+            if self._has_business_context(article_context):
+                confidence = 0.5
+                description = "Business context detected - medium confidence"
+            else:
+                confidence = 0.2
+                description = "No business context - low confidence"
+        
+        return {
+            'is_verified': confidence >= 0.6,
+            'confidence': confidence,
+            'entity_name': company_name,
+            'entity_type': [],
+            'description': description,
+            'url': '',
+            'wikidata_id': '',
+            'disambiguation_results': [],
+            'source': 'fallback_logic'
+        }
     
     def _search_entities(self, query: str, context: str = "") -> List[Dict]:
         """Search Google Knowledge Graph for entities matching the query"""
@@ -65,10 +98,14 @@ class GoogleKnowledgeGraphDisambiguator:
                 context_words = context.split()[:5]  # First 5 words
                 search_query = f"{query} {' '.join(context_words)}"
             
+            # For company searches, add business context
+            if not context or len(context) < 20:
+                search_query = f"{query} company business organization"
+            
             params = {
                 'query': search_query,
                 'key': self.api_key,
-                'limit': 10,
+                'limit': 20,  # Increase limit to get more results
                 'types': 'Organization|Corporation|Company|EducationalOrganization',
                 'indent': True
             }
@@ -80,6 +117,17 @@ class GoogleKnowledgeGraphDisambiguator:
             
             if 'itemListElement' in data:
                 return data['itemListElement']
+            
+            # If no results with types filter, try without it
+            params.pop('types')
+            response = requests.get(self.base_url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if 'itemListElement' in data:
+                return data['itemListElement']
+            
             return []
             
         except Exception as e:
@@ -120,7 +168,11 @@ class GoogleKnowledgeGraphDisambiguator:
                 return True
         
         # Check if name matches company name well
-        if self._name_similarity(company_name, name) > 0.7:
+        if self._name_similarity(company_name, name) > 0.6:
+            return True
+        
+        # If we have a good name match and any description, consider it
+        if self._name_similarity(company_name, name) > 0.8 and description:
             return True
         
         return False
@@ -291,6 +343,48 @@ class GoogleKnowledgeGraphDisambiguator:
         
         return min(score, 1.0)
     
+    def _is_likely_person_name(self, text: str) -> bool:
+        """Check if text looks like a person's name"""
+        text = text.strip()
+        
+        # Check for titles that indicate a person
+        person_titles = ['mr', 'mrs', 'ms', 'dr', 'professor', 'prof', 'sir', 'madam']
+        words = text.lower().split()
+        if words and words[0] in person_titles:
+            return True
+        
+        # Check if it follows "First Last" pattern with proper capitalization
+        parts = text.split()
+        if len(parts) == 2:
+            if (parts[0][0].isupper() and parts[0][1:].islower() and 
+                parts[1][0].isupper() and parts[1][1:].islower()):
+                return True
+        
+        return False
+    
+    def _has_business_context(self, text: str) -> bool:
+        """Check if text contains business-related context"""
+        if not text:
+            return False
+            
+        text_lower = text.lower()
+        
+        # Business context indicators
+        business_indicators = [
+            'company', 'corporation', 'inc', 'llc', 'ltd', 'startup', 'tech',
+            'software', 'platform', 'service', 'announces', 'launches', 'raises',
+            'funding', 'partnership', 'merger', 'acquisition', 'appoints', 'ceo',
+            'cto', 'headquarters', 'office', 'location', 'expansion'
+        ]
+        
+        # Count business indicators
+        business_score = 0
+        for indicator in business_indicators:
+            if indicator in text_lower:
+                business_score += 1
+        
+        return business_score >= 2
+
     def _no_api_key_fallback(self, company_name: str) -> Dict:
         """Fallback when no API key is provided"""
         return {
@@ -361,7 +455,7 @@ class GoogleKnowledgeGraphDisambiguator:
 def test_google_knowledge_graph_disambiguation():
     """Test the Google Knowledge Graph disambiguation system"""
     # You'll need to set your API key
-    api_key = "YOUR_GOOGLE_KNOWLEDGE_GRAPH_API_KEY"
+    api_key = "AIzaSyBDXQJdBMTcRoqY_qMDZZbK5eT8-rLYOHQ"
     
     if api_key == "YOUR_GOOGLE_KNOWLEDGE_GRAPH_API_KEY":
         print("Please set your Google Knowledge Graph API key to test")
